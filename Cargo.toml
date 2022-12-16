@@ -1,0 +1,9 @@
+[package]
+name = "badcrypto"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+eyre = "0.6.8"
+curv-kzen = { version = "0.10.0", features = ["num-bigint"], default-features = false }
