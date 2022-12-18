@@ -1,1 +1,1 @@
-pub mod elgamel;
+pub mod elgamal;

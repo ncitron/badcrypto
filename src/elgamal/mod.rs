@@ -7,12 +7,12 @@ use curv::{
 };
 use eyre::Result;
 
-/// An ElGamel public key using the secp256k1 curve
+/// An ElGamal public key using the secp256k1 curve
 pub struct PubKey {
     point: Point<Secp256k1>,
 }
 
-/// An ElGamel private key using the secp256k1 curve
+/// An ElGamal private key using the secp256k1 curve
 pub struct SecretKey {
     secret: Scalar<Secp256k1>,
 }
