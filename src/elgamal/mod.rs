@@ -75,11 +75,11 @@ impl From<&SecretKey> for PubKey {
     }
 }
 
-/// Encodes a BigInt message as a Point. Fails if message is too long.
+/// Encodes a BigInt message as a Point. Fails if message is too long
+/// or if no valid encoding can be found the message.
 /// Method based on https://arxiv.org/pdf/1707.04892.pdf
 fn embed(m: &BigInt) -> Result<Point<Secp256k1>> {
     let k = 30;
-    let mut i = 0;
 
     let n = BigInt::from_hex("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F")
         .unwrap();
@@ -88,7 +88,7 @@ fn embed(m: &BigInt) -> Result<Point<Secp256k1>> {
         eyre::bail!("message too long");
     }
 
-    loop {
+    for i in 0..k {
         let x = m * k + i;
         let y_squared = (x.pow(3) + 7) % n.clone();
         let y = sqrt_mod(&y_squared, &n);
@@ -96,9 +96,9 @@ fn embed(m: &BigInt) -> Result<Point<Secp256k1>> {
         if let Some(y) = y {
             return Point::from_coords(&x, &y).map_err(|_| eyre::eyre!("cannot embed message"));
         }
-
-        i += 1;
     }
+
+    Err(eyre::eyre!("cannot embed message"))
 }
 
 /// Decodes a Point into its origianl BigInt message
