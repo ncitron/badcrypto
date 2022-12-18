@@ -1,7 +1,7 @@
 use std::str::from_utf8;
 
 use curv::{
-    arithmetic::{BasicOps, Converter, Modulo, Zero},
+    arithmetic::{BasicOps, Converter, Modulo, Primes, Zero},
     elliptic::curves::{Point, Scalar, Secp256k1},
     BigInt,
 };
@@ -91,7 +91,7 @@ fn embed(m: &BigInt) -> Result<Point<Secp256k1>> {
     for i in 0..k {
         let x = m * k + i;
         let y_squared = (x.pow(3) + 7) % n.clone();
-        let y = sqrt_mod(&y_squared, &n);
+        let y = sqrt_mod_p(&y_squared, &n)?;
 
         if let Some(y) = y {
             return Point::from_coords(&x, &y).map_err(|_| eyre::eyre!("cannot embed message"));
@@ -108,12 +108,17 @@ fn unembed(p: &Point<Secp256k1>) -> BigInt {
     p.x_coord().unwrap() / BigInt::from(k)
 }
 
-/// Tonelli-Shanks algorithm for finding a square root in a prime field
-fn sqrt_mod(n: &BigInt, p: &BigInt) -> Option<BigInt> {
+/// Tonelli-Shanks algorithm for finding a square root in a prime field.
+/// If there is no square root None is returned. Fails if p is composite.
+fn sqrt_mod_p(n: &BigInt, p: &BigInt) -> Result<Option<BigInt>> {
     let ls = |x: &BigInt| -> BigInt { BigInt::mod_pow(x, &((p - 1) / 2), p) };
 
+    if !Primes::is_probable_prime(p, 64) {
+        eyre::bail!("p is composite")
+    }
+
     if ls(n) != BigInt::from(1) {
-        return None;
+        return Ok(None);
     }
 
     let mut q = p - 1;
@@ -125,7 +130,7 @@ fn sqrt_mod(n: &BigInt, p: &BigInt) -> Option<BigInt> {
     }
 
     if s == BigInt::from(1) {
-        return Some(BigInt::mod_pow(n, &((p + 1) / 4), p));
+        return Ok(Some(BigInt::mod_pow(n, &((p + 1) / 4), p)));
     }
 
     let mut z = BigInt::from(2);
@@ -140,7 +145,7 @@ fn sqrt_mod(n: &BigInt, p: &BigInt) -> Option<BigInt> {
 
     loop {
         if t == BigInt::from(1) {
-            return Some(r);
+            return Ok(Some(r));
         }
 
         let mut i = BigInt::zero();
