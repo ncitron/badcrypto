@@ -2,7 +2,7 @@ use eyre::Result;
 use rand::random;
 
 /// ChaCha20 encryption with 96 bit nonce and 32 bit counter
-pub struct ChaCha {
+pub struct ChaCha20 {
     key: Key,
 }
 
@@ -23,7 +23,7 @@ pub struct Nonce([u32; 3]);
 /// Internal ChaCha state representing the 4x4 u32 matrix
 struct ChaChaState(Vec<u32>);
 
-impl ChaCha {
+impl ChaCha20 {
     /// Creates a new ChaCha cipher from a private key
     pub fn new(key: Key) -> Self {
         Self { key }
@@ -193,7 +193,7 @@ fn test_full_cycle() {
     let message = "Hello, World!";
     let key = Key::new(&hex::encode(random::<[u8; 32]>())).unwrap();
 
-    let cipher = ChaCha::new(key);
+    let cipher = ChaCha20::new(key);
     let ciphertext = cipher.encrypt(message);
     let decrypted_message = cipher.decrypt(&ciphertext).unwrap();
 
@@ -209,7 +209,7 @@ fn test_apply_cipher() {
 
     let nonce = Nonce::from_str(nonce).unwrap();
 
-    let k = ChaCha::new(key);
+    let k = ChaCha20::new(key);
 
     let c = k.apply_cipher_with_nonce(&message.as_bytes().to_vec(), &nonce);
 
