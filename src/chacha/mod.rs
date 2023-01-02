@@ -6,36 +6,48 @@ pub struct ChaCha {
     key: Key,
 }
 
+/// ChaCha20 ciphertext
 pub struct CipherText {
+    /// Variable length ciphertext bytes
     pub c: Vec<u8>,
+    /// Nonce used to seed PRG state
     pub nonce: Nonce,
 }
 
+/// 256 bit ChaCha private key
 pub struct Key([u32; 8]);
 
+/// 96 bit nonce used in PRG
 pub struct Nonce([u32; 3]);
 
+/// Internal ChaCha state representing the 4x4 u32 matrix
 struct ChaChaState(Vec<u32>);
 
 impl ChaCha {
-    pub fn new(key: Key) -> Result<Self> {
-        Ok(Self { key })
+    /// Creates a new ChaCha cipher from a private key
+    pub fn new(key: Key) -> Self {
+        Self { key }
     }
 
-    pub fn encrypt(&self, message: &str) -> Result<CipherText> {
+    /// Encrypts a message
+    pub fn encrypt(&self, message: &str) -> CipherText {
         let nonce = Nonce::new(random::<[u32; 3]>());
         let message_bytes = message.as_bytes().to_vec();
-        let c = self.apply_cipher_with_nonce(&message_bytes, &nonce)?;
+        let c = self.apply_cipher_with_nonce(&message_bytes, &nonce);
 
-        Ok(CipherText { c, nonce })
+        CipherText { c, nonce }
     }
 
+    /// Decrypts a message. Errors if the message is not valid utf-8
     pub fn decrypt(&self, ciphertext: &CipherText) -> Result<String> {
-        let message_bytes = self.apply_cipher_with_nonce(&ciphertext.c, &ciphertext.nonce)?;
+        let message_bytes = self.apply_cipher_with_nonce(&ciphertext.c, &ciphertext.nonce);
         Ok(String::from_utf8(message_bytes)?)
     }
 
-    fn apply_cipher_with_nonce(&self, message: &Vec<u8>, nonce: &Nonce) -> Result<Vec<u8>> {
+    /// Applies cipher to the message with a given nonce. Can be used to encrypt
+    /// or decrypt. Nonce must be unique. If a nonce is reused, messages may be
+    /// decrypted.
+    fn apply_cipher_with_nonce(&self, message: &Vec<u8>, nonce: &Nonce) -> Vec<u8> {
         let counter_start = 1u32;
 
         let c = message
@@ -61,11 +73,12 @@ impl ChaCha {
             .flatten()
             .collect::<Vec<u8>>();
 
-        Ok(c)
+        c
     }
 }
 
 impl ChaChaState {
+    /// Creates a new ChaChaState
     pub fn new(key: &Key, counter: u32, nonce: &Nonce) -> Self {
         let constants = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
 
@@ -78,6 +91,7 @@ impl ChaChaState {
         Self(block)
     }
 
+    /// Runs the ChaCha PRG function to generate a random block
     pub fn chacha_block(&mut self) {
         let original = self.0.clone();
 
@@ -97,6 +111,7 @@ impl ChaChaState {
         }
     }
 
+    /// Applies the quarter round function with the given state idices
     fn quarter_round_state(&mut self, ai: usize, bi: usize, ci: usize, di: usize) {
         let mut a = self.0[ai];
         let mut b = self.0[bi];
@@ -113,6 +128,7 @@ impl ChaChaState {
 }
 
 impl Key {
+    /// Create a new Key. Errors if the string is not a 32 byte hex value.
     pub fn new(s: &str) -> Result<Self> {
         let key: [u32; 8] = hex::decode(s)
             .map_err(|_| eyre::eyre!("cannot parse key"))?
@@ -128,6 +144,7 @@ impl Key {
 }
 
 impl Nonce {
+    /// Create a new Nonce from a string. Fails if the string is not a 12 byte hex value.
     pub fn from_str(s: &str) -> Result<Self> {
         let nonce: [u32; 3] = hex::decode(s)
             .map_err(|_| eyre::eyre!("cannot parse nonce"))?
@@ -141,11 +158,13 @@ impl Nonce {
         Ok(Self(nonce))
     }
 
+    /// Creates a new nonce from a fixed length u32 array
     pub fn new(n: [u32; 3]) -> Self {
         Self(n)
     }
 }
 
+/// Quarter round function as defined by section 2.1 of RFC 8439
 fn quarter_round(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
     *a = a.wrapping_add(*b);
     *d ^= *a;
@@ -164,6 +183,7 @@ fn quarter_round(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
     *b = rotl(*b, 7);
 }
 
+/// Circular left shift. Panics if shift if greater than 32.
 fn rotl(value: u32, shift: u32) -> u32 {
     value << shift | value >> (32 - shift)
 }
@@ -173,8 +193,8 @@ fn test_full_cycle() {
     let message = "Hello, World!";
     let key = Key::new(&hex::encode(random::<[u8; 32]>())).unwrap();
 
-    let cipher = ChaCha::new(key).unwrap();
-    let ciphertext = cipher.encrypt(message).unwrap();
+    let cipher = ChaCha::new(key);
+    let ciphertext = cipher.encrypt(message);
     let decrypted_message = cipher.decrypt(&ciphertext).unwrap();
 
     assert_eq!(decrypted_message, message);
@@ -182,18 +202,16 @@ fn test_full_cycle() {
 
 #[test]
 fn test_apply_cipher() {
-    // test vector from rfc8439
+    // test vector from RFC 8439
     let key = Key::new("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").unwrap();
     let nonce = "000000000000004a00000000";
     let message = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
 
     let nonce = Nonce::from_str(nonce).unwrap();
 
-    let k = ChaCha::new(key).unwrap();
+    let k = ChaCha::new(key);
 
-    let c = k
-        .apply_cipher_with_nonce(&message.as_bytes().to_vec(), &nonce)
-        .unwrap();
+    let c = k.apply_cipher_with_nonce(&message.as_bytes().to_vec(), &nonce);
 
     let expected = "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8eedf2785e42874d";
 
@@ -202,7 +220,7 @@ fn test_apply_cipher() {
 
 #[test]
 fn test_chacha_block() {
-    // test vector from rfc8439
+    // test vector from RFC 8439
     let key = Key::new("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").unwrap();
     let nonce = Nonce::from_str("000000090000004a00000000").unwrap();
     let counter = 1;
@@ -225,7 +243,7 @@ fn test_chacha_block() {
 
 #[test]
 fn test_quarter_round() {
-    // test vector from rfc8439
+    // test vector from RFC 8439
     let mut a = 0x11111111;
     let mut b = 0x01020304;
     let mut c = 0x9b8d6f43;
