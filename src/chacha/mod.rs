@@ -3,30 +3,27 @@ use rand::random;
 
 /// ChaCha20 encryption with 96 bit nonce and 32 bit counter
 pub struct ChaCha {
-    key: [u32; 8],
+    key: Key,
 }
 
 pub struct CipherText {
     pub c: Vec<u8>,
-    pub nonce: [u32; 3],
+    pub nonce: Nonce,
 }
 
-impl ChaCha {
-    pub fn new(key: &str) -> Result<Self> {
-        let key: [u32; 8] = hex::decode(key)
-            .map_err(|_| eyre::eyre!("cannot parse key"))?
-            .chunks(4)
-            .map(|chunk| Ok(u32::from_le_bytes(chunk.try_into()?)))
-            .collect::<Result<Vec<u32>>>()
-            .map_err(|_| eyre::eyre!("cannot parse key"))?
-            .try_into()
-            .map_err(|_| eyre::eyre!("cannot parse key"))?;
+pub struct Key([u32; 8]);
 
+pub struct Nonce([u32; 3]);
+
+struct ChaChaState(Vec<u32>);
+
+impl ChaCha {
+    pub fn new(key: Key) -> Result<Self> {
         Ok(Self { key })
     }
 
     pub fn encrypt(&self, message: &str) -> Result<CipherText> {
-        let nonce = random::<[u32; 3]>();
+        let nonce = Nonce::new(random::<[u32; 3]>());
         let message_bytes = message.as_bytes().to_vec();
         let c = self.apply_cipher_with_nonce(&message_bytes, &nonce)?;
 
@@ -38,7 +35,7 @@ impl ChaCha {
         Ok(String::from_utf8(message_bytes)?)
     }
 
-    fn apply_cipher_with_nonce(&self, message: &Vec<u8>, nonce: &[u32; 3]) -> Result<Vec<u8>> {
+    fn apply_cipher_with_nonce(&self, message: &Vec<u8>, nonce: &Nonce) -> Result<Vec<u8>> {
         let counter_start = 1u32;
 
         let c = message
@@ -46,7 +43,11 @@ impl ChaCha {
             .enumerate()
             .map(|(i, chunk)| {
                 let j = counter_start + i as u32;
-                let key_stream = chacha_block(&self.key, j, &nonce)
+                let mut state = ChaChaState::new(&self.key, j, &nonce);
+                state.chacha_block();
+
+                let key_stream = state
+                    .0
                     .iter()
                     .flat_map(|n| n.to_le_bytes())
                     .collect::<Vec<u8>>();
@@ -64,78 +65,115 @@ impl ChaCha {
     }
 }
 
-fn chacha_block(key: &[u32; 8], counter: u32, nonce: &[u32; 3]) -> [u32; 16] {
-    let constants = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
+impl ChaChaState {
+    pub fn new(key: &Key, counter: u32, nonce: &Nonce) -> Self {
+        let constants = [0x61707865, 0x3320646e, 0x79622d32, 0x6b206574];
 
-    let mut block = Vec::<u32>::new();
-    block.extend(constants);
-    block.extend(key);
-    block.push(counter);
-    block.extend(nonce);
+        let mut block = Vec::<u32>::new();
+        block.extend(constants);
+        block.extend(key.0);
+        block.push(counter);
+        block.extend(nonce.0);
 
-    let mut block: [u32; 16] = block.try_into().unwrap();
-    let original = block.clone();
-
-    for _ in 0..10 {
-        quarter_round_state(&mut block, 0, 4, 8, 12);
-        quarter_round_state(&mut block, 1, 5, 9, 13);
-        quarter_round_state(&mut block, 2, 6, 10, 14);
-        quarter_round_state(&mut block, 3, 7, 11, 15);
-        quarter_round_state(&mut block, 0, 5, 10, 15);
-        quarter_round_state(&mut block, 1, 6, 11, 12);
-        quarter_round_state(&mut block, 2, 7, 8, 13);
-        quarter_round_state(&mut block, 3, 4, 9, 14);
+        Self(block)
     }
 
-    for i in 0..16 {
-        block[i] = block[i].wrapping_add(original[i]);
+    pub fn chacha_block(&mut self) {
+        let original = self.0.clone();
+
+        for _ in 0..10 {
+            self.quarter_round_state(0, 4, 8, 12);
+            self.quarter_round_state(1, 5, 9, 13);
+            self.quarter_round_state(2, 6, 10, 14);
+            self.quarter_round_state(3, 7, 11, 15);
+            self.quarter_round_state(0, 5, 10, 15);
+            self.quarter_round_state(1, 6, 11, 12);
+            self.quarter_round_state(2, 7, 8, 13);
+            self.quarter_round_state(3, 4, 9, 14);
+        }
+
+        for i in 0..16 {
+            self.0[i] = self.0[i].wrapping_add(original[i]);
+        }
     }
 
-    block
+    fn quarter_round_state(&mut self, ai: usize, bi: usize, ci: usize, di: usize) {
+        let mut a = self.0[ai];
+        let mut b = self.0[bi];
+        let mut c = self.0[ci];
+        let mut d = self.0[di];
+
+        quarter_round(&mut a, &mut b, &mut c, &mut d);
+
+        self.0[ai] = a;
+        self.0[bi] = b;
+        self.0[ci] = c;
+        self.0[di] = d;
+    }
 }
 
-fn quarter_round_state(state: &mut [u32; 16], ai: usize, bi: usize, ci: usize, di: usize) {
-    let mut a = state[ai];
-    let mut b = state[bi];
-    let mut c = state[ci];
-    let mut d = state[di];
+impl Key {
+    pub fn new(s: &str) -> Result<Self> {
+        let key: [u32; 8] = hex::decode(s)
+            .map_err(|_| eyre::eyre!("cannot parse key"))?
+            .chunks(4)
+            .map(|chunk| Ok(u32::from_le_bytes(chunk.try_into()?)))
+            .collect::<Result<Vec<u32>>>()
+            .map_err(|_| eyre::eyre!("cannot parse key"))?
+            .try_into()
+            .map_err(|_| eyre::eyre!("cannot parse key"))?;
 
-    quarter_round(&mut a, &mut b, &mut c, &mut d);
+        Ok(Self(key))
+    }
+}
 
-    state[ai] = a;
-    state[bi] = b;
-    state[ci] = c;
-    state[di] = d;
+impl Nonce {
+    pub fn from_str(s: &str) -> Result<Self> {
+        let nonce: [u32; 3] = hex::decode(s)
+            .map_err(|_| eyre::eyre!("cannot parse nonce"))?
+            .chunks(4)
+            .map(|chunk| Ok(u32::from_le_bytes(chunk.try_into()?)))
+            .collect::<Result<Vec<u32>>>()
+            .map_err(|_| eyre::eyre!("cannot parse nonce"))?
+            .try_into()
+            .map_err(|_| eyre::eyre!("cannot parse nonce"))?;
+
+        Ok(Self(nonce))
+    }
+
+    pub fn new(n: [u32; 3]) -> Self {
+        Self(n)
+    }
 }
 
 fn quarter_round(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
     *a = a.wrapping_add(*b);
     *d ^= *a;
-    *d = rot(*d, 16);
+    *d = rotl(*d, 16);
 
     *c = c.wrapping_add(*d);
     *b ^= *c;
-    *b = rot(*b, 12);
+    *b = rotl(*b, 12);
 
     *a = a.wrapping_add(*b);
     *d ^= *a;
-    *d = rot(*d, 8);
+    *d = rotl(*d, 8);
 
     *c = c.wrapping_add(*d);
     *b ^= *c;
-    *b = rot(*b, 7);
+    *b = rotl(*b, 7);
 }
 
-fn rot(value: u32, shift: u32) -> u32 {
+fn rotl(value: u32, shift: u32) -> u32 {
     value << shift | value >> (32 - shift)
 }
 
 #[test]
 fn test_full_cycle() {
     let message = "Hello, World!";
-    let key = hex::encode(random::<[u8; 32]>());
+    let key = Key::new(&hex::encode(random::<[u8; 32]>())).unwrap();
 
-    let cipher = ChaCha::new(&key).unwrap();
+    let cipher = ChaCha::new(key).unwrap();
     let ciphertext = cipher.encrypt(message).unwrap();
     let decrypted_message = cipher.decrypt(&ciphertext).unwrap();
 
@@ -145,18 +183,11 @@ fn test_full_cycle() {
 #[test]
 fn test_apply_cipher() {
     // test vector from rfc8439
-    let key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    let key = Key::new("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").unwrap();
     let nonce = "000000000000004a00000000";
     let message = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
 
-    let nonce: [u32; 3] = hex::decode(nonce)
-        .unwrap()
-        .chunks(4)
-        .map(|chunk| Ok(u32::from_le_bytes(chunk.try_into()?)))
-        .collect::<Result<Vec<u32>>>()
-        .unwrap()
-        .try_into()
-        .unwrap();
+    let nonce = Nonce::from_str(nonce).unwrap();
 
     let k = ChaCha::new(key).unwrap();
 
@@ -172,30 +203,16 @@ fn test_apply_cipher() {
 #[test]
 fn test_chacha_block() {
     // test vector from rfc8439
-    let key = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-    let nonce = "000000090000004a00000000";
+    let key = Key::new("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f").unwrap();
+    let nonce = Nonce::from_str("000000090000004a00000000").unwrap();
     let counter = 1;
 
-    let key: [u32; 8] = hex::decode(key)
-        .unwrap()
-        .chunks(4)
-        .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect::<Vec<u32>>()
-        .try_into()
-        .unwrap();
-
-    let nonce: [u32; 3] = hex::decode(nonce)
-        .unwrap()
-        .chunks(4)
-        .map(|chunk| u32::from_le_bytes(chunk.try_into().unwrap()))
-        .collect::<Vec<u32>>()
-        .try_into()
-        .unwrap();
-
-    let block = chacha_block(&key, counter, &nonce);
+    let mut state = ChaChaState::new(&key, counter, &nonce);
+    state.chacha_block();
 
     let block = hex::encode(
-        block
+        state
+            .0
             .iter()
             .flat_map(|chunk| chunk.to_le_bytes())
             .collect::<Vec<_>>(),
