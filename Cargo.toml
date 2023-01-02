@@ -5,4 +5,6 @@ edition = "2021"
 
 [dependencies]
 eyre = "0.6.8"
+hex = "0.4.3"
+rand = "0.8.5"
 curv-kzen = { version = "0.10.0", features = ["num-bigint"], default-features = false }
