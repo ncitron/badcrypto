@@ -96,10 +96,13 @@ impl ChaChaState {
         let original = self.0.clone();
 
         for _ in 0..10 {
+            // column round
             self.quarter_round_state(0, 4, 8, 12);
             self.quarter_round_state(1, 5, 9, 13);
             self.quarter_round_state(2, 6, 10, 14);
             self.quarter_round_state(3, 7, 11, 15);
+
+            // diagonal round
             self.quarter_round_state(0, 5, 10, 15);
             self.quarter_round_state(1, 6, 11, 12);
             self.quarter_round_state(2, 7, 8, 13);
@@ -164,7 +167,7 @@ impl Nonce {
     }
 }
 
-/// Quarter round function as defined by section 2.1 of RFC 8439
+/// Quarter-round function as defined by section 2.1 of RFC 8439
 fn quarter_round(a: &mut u32, b: &mut u32, c: &mut u32, d: &mut u32) {
     *a = a.wrapping_add(*b);
     *d ^= *a;

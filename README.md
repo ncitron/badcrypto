@@ -6,3 +6,4 @@ Do not use this in production. It is called badcrypto for a reason. Some of thes
 
 ## Contents
 - [ElGamal](./src/elgamal)
+- [ChaCha20](./src/chacha)
