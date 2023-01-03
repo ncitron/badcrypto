@@ -13,13 +13,11 @@ ChaCha holds data in a 4x4 matrix consisting of 16 32 bit words containing the f
 - The third row contains the last 4 words of the key
 - The fourth row contains the block counter (1 word) and the nonce (3 words)
 
-|        |        |        |        |
-|--------|--------|--------|--------|
-| $c_1$  | $c_2$  | $c_3$  | $c_4$  |
-| $k_1$  | $k_2$  | $k_3$  | $k_4$  |
-| $k_5$  | $k_6$  | $k_7$  | $k_8$  |
-| $b$    | $n_1$  | $n_2$  | $n_3$  |
+More succinctly:
 
+```math
+\begin{bmatrix} c_1 & c_2 & c_3 & c_4 \\ k_1 & k_2 & k_3 & k_4 \\ k_5 & k_6 & k_7 & k_8 \\ b & n_1 & n_2 & n_3 \end{bmatrix}
+```
 
 Each iteration of the PRG produces a single 512 bit block of random data. The bit stream produced by the PRG is generated as needed, with the block counter being incremented and the algorithm being rerun to produce each successive block.
 
